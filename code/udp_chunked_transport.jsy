@@ -1,0 +1,78 @@
+import {deflateSync, gzipSync} from 'zlib'
+import {udpSendSimple, udpSendWithCompletion} from './udp_send_impl'
+
+export class UDPChunkedTransport ::
+  constructor(options) ::
+    if 'string' === typeof options ::
+      options = @{} url: options
+
+    const compress = unpackCompressOption @ options.compress || this.compress
+    delete options.compress
+
+    const udp_send = options.promises
+      ? udpSendWithCompletion(options)
+      : udpSendSimple(options)
+
+    Object.defineProperties @ this, @:
+      body_size: @: value: this.packet_size - this.header_size
+      _udp_send: @: value: udp_send
+      compress: @: value: compress
+
+  send(buf_body) ::
+    if ! Buffer.isBuffer @ buf_body ::
+      throw new TypeError @ `Transport can only send buffers`
+
+    const body_size = this.body_size
+    if buf_body.length < body_size ::
+      return this._udp_send @
+        this._build_packet @ buf_body
+
+    const compress = this.compress
+    if null != compress ::
+      buf_body = compress @ buf_body
+
+      if buf_body.length < body_size ::
+        return this._udp_send @
+          this._build_packet @ buf_body
+
+    const len = buf_body.length
+    if len > body_size * this.max_chunks ::
+      throw new Error @ `Buffer contains too many chunks (${Math.ceil(len/body_size)}, max ${this.max_chunks})`
+
+    else ::
+      const parts = []
+      for let offset=0; offset < len; offset += body_size ::
+        parts.push @ buf_body.slice @ offset, offset + body_size
+
+      const count = parts.length
+      const common = this._build_common @ parts
+      const _build_packet = this._build_packet.bind(this)
+      return this._udp_send.multi @
+        parts.map @ (each, idx) =>
+          _build_packet @ each, common, idx, count
+
+  _build_common(parts) ::
+    throw new Error @ `Subclass responsibility`
+  _build_packet(part, common, idx, count) ::
+    throw new Error @ `Subclass responsibility`
+
+Object.assign @ UDPChunkedTransport.prototype, @:
+  packet_size: 8192
+  header_size: NaN // TODO: fill me in
+  max_chunks: 128
+
+export default UDPChunkedTransport
+
+
+const compressByAlias = @{}
+  true: gzipSync
+  'gz': gzipSync
+  'gzip': gzipSync
+  'zlib': deflateSync
+
+function unpackCompressOption(compress) ::
+  if 'function' !== typeof compress ::
+    compress = compressByAlias[compress] || compress
+  if 'function' !== typeof compress ::
+    throw new TypeError @ `Expected compress to be a function`
+  return compress

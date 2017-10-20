@@ -1,0 +1,48 @@
+import {URL} from 'url'
+import {createSocket} from 'dgram'
+
+export function _udpSend_options(options) ::
+  options = Object.assign @ {type: 'udp4'}, options
+  const {port, address} = options
+  if ! port ::
+    if ! address && options.url ::
+      const url = new URL(options.url)
+      options.address = url.hostname
+      options.port = url.port
+    if ! options.port ::
+      throw new TypeError @ `Expected valid udp port`
+  if ! address :: options.address = '127.0.0.1'
+  options.udp_sock =
+    createSocket @ Object.assign @ {type: 'udp4'}, options
+    .unref()
+  return options
+
+
+export function udpSendSimple(options) ::
+  const {udp_sock, port, address, on_error} = _udpSend_options @ options
+  send.multi = packetList => ::
+    for const each of packetList :: send @ each
+  return send
+
+  function send(packet) ::
+    udp_sock.send @ packet, port, address, on_send_callback
+
+  function on_send_callback(err) ::
+    if null == err :: return
+    if 'function' === typeof on_error ::
+      return on_error(err)
+    else if undefined === on_error ::
+      console.error @ 'udpSendSimple error:', err
+
+
+export function udpSendWithCompletion(options) ::
+  const {udp_sock, port, address} = _udpSend_options @ options
+  send.multi = packetList =>
+    Promise.all @ packetList.map @ send
+  return send
+
+  function send(packet) ::
+    return new Promise @ (resolve, reject) =>
+      udp_sock.send @ packet, port, address
+        err => null != err ? reject(err) : resolve()
+

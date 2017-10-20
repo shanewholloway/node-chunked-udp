@@ -1,0 +1,121 @@
+import {unzip} from 'zlib'
+import {randomFillSync} from 'crypto'
+import {UDPChunkedTransport} from './udp_chunked_transport'
+
+const zero = Buffer.from([0])
+export class UDPMessageTransport extends UDPChunkedTransport ::
+  // 00 «packet body» — single packet transmission
+  // iinn uuuu uuuu uukk «packet body» — multi packet transmission
+  //       ii :: message number (1-based)
+  //       nn :: count
+  //       uuuu uuuu uukk :: message id, where kk is an in-memory client incremented byte
+
+  _build_packet(part, common, idx, count) ::
+    if undefined === common ::
+      return @# zero, part
+
+    return @#
+      Buffer.from @# 1+idx, count
+      common
+      part
+
+  _build_common() ::
+    let msgid = this._msgid
+    if undefined === msgid ::
+      this._msgid = msgid = Buffer.alloc(6)
+      randomFillSync @ msgid, 0, 5
+      msgid[5] = 0x00 // local sequence number
+    else if 0xff === msgid[5] ::
+      randomFillSync @ msgid, 0, 5
+      msgid[5] = 0x00 // sequence number is saturated; increment
+    else ::
+      msgid[5]++
+    return msgid.slice()
+
+  static parser(...args) :: return udpMessageParser @ ...args
+
+Object.assign @ UDPMessageTransport.prototype, @:
+  packet_size: 8192
+  header_size: 8
+  max_chunks: 128
+  compress: 'gzip'
+
+
+export function udpMessageParser(inflightById, on_message) ::
+  if 'function' === typeof inflightById && undefined === on_message ::
+    on_message = inflightById; inflightById = new Map()
+
+  else if null == inflightById ::
+    inflightById = new Map()
+
+  else if 'function' !== typeof inflightById.get
+       && 'function' !== typeof inflightById.set
+       && 'function' !== typeof inflightById.delete
+    :: throw new TypeError @ `Expected Map-like inflightById`
+
+  if 'function' !== typeof on_message ::
+    throw new TypeError @ `Expected on_message function`
+
+  handle_packet.feed = handle_packet
+  return handle_packet
+
+  function handle_packet(packet, rinfo) ::
+    if 0 === packet[0] ::
+      decodeBody @ packet.slice(1), [rinfo]
+      return
+
+    const [idx, count] = packet
+    const msgid = packet.hexSlice(1, 8)
+
+    let partial = inflightById.get(msgid)
+    if undefined === partial ::
+      partial = reassemble(count)
+      inflightById.set(msgid, partial)
+
+    if partial(idx, packet.slice(8), rinfo) ::
+      inflightById.delete(msgid)
+      
+  function reassemble(count) ::
+    let partList = Array(count)
+    let rinfoList = Array(count)
+    return function (idx, part, rinfo) ::
+      partList[idx-1] = part
+      rinfoList[idx-1] = rinfo
+      if partList.includes @ undefined ::
+        return false // still incomplete
+
+      decodeBody @ Buffer.concat(partList), rinfoList
+      partList = rinfoList = undefined
+      return true
+
+  function decodeBody(buf_body, rinfoList) ::
+    unzip @ buf_body, function (err, body) ::
+      if null == err ::
+        return on_message(null, body, rinfoList)
+      else if 'Z_DATA_ERROR' === err.code ::
+        return on_message(null, buf_body, rinfoList)
+      else ::
+        return on_message(err)
+
+
+export function udpJSONMessageClient(options) ::
+  const transport = new UDPMessageTransport @ options
+  send.send = send
+  return send
+
+  function send(msg) ::
+    return transport.send @ Buffer.from @ JSON.stringify @ msg
+
+export function udpJSONMessageParser(inflightById, on_message) ::
+  if 'function' === typeof inflightById && undefined === on_message ::
+    on_message = inflightById; inflightById = new Map()
+
+  return udpMessageParser @ inflightById
+    function (err, buf_body, rinfoList) ::
+      if null != err :: return on_message(err)
+
+      try :: var msg = JSON.parse @ buf_body.toString('utf-8')
+      catch err :: return on_message(err)
+
+      return on_message(null, msg, rinfoList)
+
