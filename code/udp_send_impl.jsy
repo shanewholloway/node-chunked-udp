@@ -3,14 +3,15 @@ import {createSocket} from 'dgram'
 
 export function _udpSend_options(options) ::
   options = Object.assign @ {type: 'udp4'}, options
-  const {port, address} = options
-  if ! port ::
-    if ! address && options.url ::
-      const url = new URL(options.url)
-      options.address = url.hostname
+
+  if options.url ::
+    const url = new URL(options.url)
+    options.address = url.hostname
+    if url.port ::
       options.port = url.port
-    if ! options.port ::
-      throw new TypeError @ `Expected valid udp port`
+
+  const {port, address} = options
+  if ! port :: throw new TypeError @ `Expected valid udp port`
   if ! address :: options.address = '127.0.0.1'
   options.udp_sock =
     createSocket @ Object.assign @ {type: 'udp4'}, options

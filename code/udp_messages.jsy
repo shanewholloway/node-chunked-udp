@@ -1,6 +1,6 @@
-import {unzip} from 'zlib'
 import {randomFillSync} from 'crypto'
 import {UDPChunkedTransport} from './udp_chunked_transport'
+import {udpRecvChunks, asJSONParsedMessage} from './udp_recv_impl'
 
 const zero = Buffer.from([0])
 export class UDPMessageTransport extends UDPChunkedTransport ::
@@ -32,8 +32,6 @@ export class UDPMessageTransport extends UDPChunkedTransport ::
       msgid[5]++
     return msgid.slice()
 
-  static parser(...args) :: return udpMessageParser @ ...args
-
 Object.assign @ UDPMessageTransport.prototype, @:
   packet_size: 8192
   header_size: 8
@@ -41,64 +39,19 @@ Object.assign @ UDPMessageTransport.prototype, @:
   compress: 'gzip'
 
 
-export function udpMessageParser(inflightById, on_message) ::
-  if 'function' === typeof inflightById && undefined === on_message ::
-    on_message = inflightById; inflightById = new Map()
-
-  else if null == inflightById ::
-    inflightById = new Map()
-
-  else if 'function' !== typeof inflightById.get
-       && 'function' !== typeof inflightById.set
-       && 'function' !== typeof inflightById.delete
-    :: throw new TypeError @ `Expected Map-like inflightById`
-
-  if 'function' !== typeof on_message ::
-    throw new TypeError @ `Expected on_message function`
-
-  handle_packet.feed = handle_packet
+export function udp_message_parser(inflightById, on_message) ::
+  const {feed, decode} = udpRecvChunks(inflightById, on_message)
   return handle_packet
 
   function handle_packet(packet, rinfo) ::
     if 0 === packet[0] ::
-      decodeBody @ packet.slice(1), [rinfo]
-      return
+      return decode @ packet.slice(1), [rinfo]
 
     const [idx, count] = packet
     const msgid = packet.hexSlice(1, 8)
+    return feed @ msgid, count, idx, packet.slice(8), rinfo
 
-    let partial = inflightById.get(msgid)
-    if undefined === partial ::
-      partial = reassemble(count)
-      inflightById.set(msgid, partial)
-
-    if partial(idx, packet.slice(8), rinfo) ::
-      inflightById.delete(msgid)
-      
-  function reassemble(count) ::
-    let partList = Array(count)
-    let rinfoList = Array(count)
-    return function (idx, part, rinfo) ::
-      partList[idx-1] = part
-      rinfoList[idx-1] = rinfo
-      if partList.includes @ undefined ::
-        return false // still incomplete
-
-      decodeBody @ Buffer.concat(partList), rinfoList
-      partList = rinfoList = undefined
-      return true
-
-  function decodeBody(buf_body, rinfoList) ::
-    unzip @ buf_body, function (err, body) ::
-      if null == err ::
-        return on_message(null, body, rinfoList)
-      else if 'Z_DATA_ERROR' === err.code ::
-        return on_message(null, buf_body, rinfoList)
-      else ::
-        return on_message(err)
-
-
-export function udpJSONMessageClient(options) ::
+export function udp_message_client(options) ::
   const transport = new UDPMessageTransport @ options
   send.send = send
   return send
@@ -106,16 +59,16 @@ export function udpJSONMessageClient(options) ::
   function send(msg) ::
     return transport.send @ Buffer.from @ JSON.stringify @ msg
 
-export function udpJSONMessageParser(inflightById, on_message) ::
+
+export function udp_json_parser(inflightById, on_message) ::
   if 'function' === typeof inflightById && undefined === on_message ::
     on_message = inflightById; inflightById = new Map()
+  return udp_message_parser @ inflightById, asJSONParsedMessage(on_message)
 
-  return udpMessageParser @ inflightById
-    function (err, buf_body, rinfoList) ::
-      if null != err :: return on_message(err)
+export function udp_json_client(options) ::
+  const transport = new UDPMessageTransport @ options
+  send.send = send
+  return send
 
-      try :: var msg = JSON.parse @ buf_body.toString('utf-8')
-      catch err :: return on_message(err)
-
-      return on_message(null, msg, rinfoList)
-
+  function send(msg) ::
+    return transport.send @ Buffer.from @ JSON.stringify @ msg

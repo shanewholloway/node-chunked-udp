@@ -10,11 +10,11 @@ const server = createSocket('udp4')
   .bind(41234)
 
 
-const {udpJSONMessageParser} = require('../dist'); // require('chunked-udp');
+const {udp_json_parser} = require('../dist'); // require('chunked-udp');
 const inflightMessages = new Map() // or, perhaps, require('hashbelt').createCachingHashbelt().autoRotate()
-const msg_parse_context = udpJSONMessageParser(inflightMessages, on_udp_message);
+const msg_parse_context = udp_json_parser(inflightMessages, on_message);
 
-function on_udp_message(err, msg, rinfoList) {
+function on_message(err, msg, rinfoList) {
   if (err)
     console.log('on_message ERROR', err);
   else console.log('on_message', msg);

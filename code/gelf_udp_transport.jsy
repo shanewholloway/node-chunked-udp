@@ -1,0 +1,65 @@
+import {randomFillSync} from 'crypto'
+import {UDPChunkedTransport} from './udp_chunked_transport'
+import {udpRecvChunks, asJSONParsedMessage} from './udp_recv_impl'
+
+const gelf_header = Buffer.alloc(10)
+gelf_header[0] = 0x1e // GELF magic-byte 0
+gelf_header[1] = 0x0f // GELF magic-byte 1
+gelf_header[2] = 0x01 // local sequence number
+
+export class GELF_UDPTransport extends UDPChunkedTransport ::
+  _build_common() ::
+    let msgid = this._msgid
+    if undefined === msgid ::
+      this._msgid = msgid = gelf_header.slice()
+      randomFillSync @ msgid, 3, 7
+    else if 0xff === msgid[2] ::
+      msgid[2] = 0x01 // sequence number is saturated; increment
+      randomFillSync @ msgid, 3, 7
+    else ::
+      msgid[2]++
+    return msgid.slice()
+
+  _build_packet(part, common, idx, count) ::
+    if undefined === common ::
+      return part
+
+    return @#
+      common
+      Buffer.from @# idx, count
+      part
+
+Object.assign @ GELF_UDPTransport.prototype, @:
+  packet_size: 8192
+  header_size: 12
+  max_chunks: 128
+
+  default_options: @{}
+    compress: 'gzip'
+    port: 12201
+
+
+export function udp_gelf_parser(inflightById, on_message) ::
+  on_message = asJSONParsedMessage(on_message)
+  const {feed, decode} = udpRecvChunks @ inflightById, on_message
+  return handle_packet
+
+  function handle_packet(packet, rinfo) ::
+    if 0x1e !== packet[0] :: return // not a gelf packet
+    if 0x0f !== packet[1] :: return // not a gelf packet
+    const idx = packet[10], count = packet[11]
+    const part = packet.slice(12)
+    if 0 === idx && 1 === count ::
+      return decode @ part, [rinfo]
+
+    const msgid = packet.hexSlice(2, 10)
+    return feed @ msgid, count, idx, part, rinfo
+
+export function udp_gelf_client(options) ::
+  const transport = new GELF_UDPTransport @ options
+  send.send = send
+  return send
+
+  function send(msg) ::
+    return transport.send @ Buffer.from @ JSON.stringify @ msg
+

@@ -3,8 +3,7 @@ import {udpSendSimple, udpSendWithCompletion} from './udp_send_impl'
 
 export class UDPChunkedTransport ::
   constructor(options) ::
-    if 'string' === typeof options ::
-      options = @{} url: options
+    options = this._initOptions(options)
 
     const compress = unpackCompressOption @ options.compress || this.compress
     delete options.compress
@@ -17,6 +16,12 @@ export class UDPChunkedTransport ::
       body_size: @: value: this.packet_size - this.header_size
       _udp_send: @: value: udp_send
       compress: @: value: compress
+
+  _initOptions(options) ::
+    if 'string' === typeof options ::
+      options = @{} url: options
+
+    return Object.assign @ {}, this.default_options, options
 
   send(buf_body) ::
     if ! Buffer.isBuffer @ buf_body ::
@@ -60,6 +65,8 @@ Object.assign @ UDPChunkedTransport.prototype, @:
   packet_size: 8192
   header_size: NaN // TODO: fill me in
   max_chunks: 128
+  default_options: @{}
+    compress: gzipSync
 
 export default UDPChunkedTransport
 

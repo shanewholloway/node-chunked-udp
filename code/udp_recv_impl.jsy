@@ -1,0 +1,70 @@
+import {unzip} from 'zlib'
+
+export function udpRecvChunks(inflightById, on_message) ::
+  if 'function' === typeof inflightById && undefined === on_message ::
+    on_message = inflightById; inflightById = new Map()
+
+  else if null == inflightById ::
+    inflightById = new Map()
+
+  else if 'function' !== typeof inflightById.get
+       && 'function' !== typeof inflightById.set
+       && 'function' !== typeof inflightById.delete
+    :: throw new TypeError @ `Expected Map-like inflightById`
+
+  if 'function' !== typeof on_message ::
+    throw new TypeError @ `Expected on_message function`
+
+  return @{} feed, decode
+
+  function feed(msgid, count, idx, part, rinfo) ::
+    if Buffer.isBuffer(msgid) ::
+      msgid = packet.hexSlice()
+
+    let partial = inflightById.get(msgid)
+    if undefined === partial ::
+      partial = reassemble(count)
+      inflightById.set(msgid, partial)
+
+    if partial(idx, part, rinfo) ::
+      inflightById.delete(msgid)
+      
+  function reassemble(count) ::
+    let partList = Array(count)
+    let rinfoList = Array(count)
+    return function (idx, part, rinfo) ::
+      partList[idx-1] = part
+      rinfoList[idx-1] = rinfo
+      if partList.includes @ undefined ::
+        return false // still incomplete
+
+      decode @ Buffer.concat(partList), rinfoList
+      partList = rinfoList = undefined
+      return true
+
+  function decode(buf, rinfoList) ::
+    if (0x1f !== buf[0] && 0x78 !== buf[0]) ::
+      // no leading zlib or gzip byte; skip decode
+      return setImmediate @ () => on_message(null, buf, rinfoList)
+
+    unzip @ buf, function (err, buf_body) ::
+      if null == err ::
+        return on_message(null, buf_body, rinfoList)
+      else if 'Z_DATA_ERROR' === err.code ::
+        return on_message(null, body, rinfoList)
+      else ::
+        return on_message(err)
+
+
+export function asJSONParsedMessage(on_message) ::
+  if 'function' !== typeof on_message ::
+    throw new TypeError @ `Expected on_message callback function`
+
+  return function(err, buf_body, rinfoList) ::
+    if null != err :: return on_message(err)
+
+    try :: var msg = JSON.parse @ buf_body.toString('utf-8')
+    catch err :: return on_message(err)
+
+    return on_message(null, msg, rinfoList)
+

@@ -1,3 +1,4 @@
 export * from './udp_send_impl'
 export * from './udp_chunked_transport'
 export * from './udp_messages'
+export * from './gelf_udp_transport'
