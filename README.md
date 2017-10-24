@@ -5,7 +5,7 @@ Client and server utilities for chunked UDP messaging, inspired by GELF+UDP
 ### example client
 
 ```javascript
-const {udp_json_client} = require('../dist'); // require('chunked-udp');
+const {udp_json_client} = require('chunked-udp');
 
 const client = udp_json_client('udp://127.0.0.1:41234')
 
@@ -33,7 +33,7 @@ const server = createSocket('udp4')
   .bind(41234)
 
 
-const {udp_json_parser} = require('../dist'); // require('chunked-udp');
+const {udp_json_parser} = require('chunked-udp');
 const inflightMessages = new Map() // or, perhaps, require('hashbelt').createCachingHashbelt().autoRotate()
 const msg_parse_context = udp_json_parser(inflightMessages, on_udp_message);
 

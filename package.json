@@ -1,6 +1,6 @@
 {
   "name": "chunked-udp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Client and server utilities for chunked UDP messaging, inspired by GELF+UDP",
   "license": "BSD-2-Clause",
   "author": "Shane Holloway <shane.holloway@ieee.org>",
@@ -26,7 +26,7 @@
   "devDependencies": {
     "babel-cli": "^6.26.0",
     "babel-preset-jsy": "^0.9.2",
-    "graygelf": "^1.0.2",
+    "graygelf": "^1.1.0",
     "nodemon": "*"
   },
   "babel": {
